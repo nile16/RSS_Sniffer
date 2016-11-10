@@ -97,7 +97,7 @@ for user in userlist:
         try:
             server_ssl = smtplib.SMTP_SSL("smtp.gmail.com", 465)
             server_ssl.ehlo() 
-            server_ssl.login('nils.leandersson@gmail.com','rocket289')  
+            server_ssl.login('nils.leandersson@gmail.com','password')  
             server_ssl.sendmail(sender, [to], msg.as_string())
             server_ssl.close()
             print ('mail sent successfully to '+user[0])
