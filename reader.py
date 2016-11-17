@@ -2,8 +2,7 @@
 import feedparser
 import MySQLdb
 import time
-import smtplib
-from email.mime.text import MIMEText
+import sabuem
 
 #Two tables, 'reasent' and 'users' must be defined before running this script. 
 #    CREATE TABLE `reasent` ( `new` boolean, `time` int(11), `source` varchar(16), `title` varchar(1024), `link` varchar(256))
@@ -55,61 +54,35 @@ for item in netflix['entries']:
 
 db.commit()
 
-#Load all user data as tuples in a tuple.
-query="SELECT * FROM users WHERE 1";
-cursor.execute(query)
-userlist=cursor.fetchall()
+#Load data for all users as tuples in a tuple.
+cursor.execute("SELECT * FROM users WHERE confirm='0'")
+userdatalist=cursor.fetchall()
 
-#Loop through all users and build a SQL query from each user's wishlist (user[2]). 
-for user in userlist:
-    query="SELECT * FROM reasent WHERE ( "
-    #Split the wishlist string (user[2]) into a list where each line from the wishlist is an element.
-    wishlist=user[2].splitlines()
-    for x in range(len(wishlist)):
-        #split each line in the wishlist into a list where each word from the line is an element	
-        words=wishlist[x].split()
-        if len(words)==1:
-            query+="title LIKE '%"+words[0]+"%'"
+#Loop through all users and match each user's wishlist against new features in database. 
+for userdata in userdatalist:
+    wishlist=sabuem.sanitize_wishlist(userdata[2])
+    if len(wishlist)!=0:
+        #Build a SQL query based on each user's wishlist and execute it.
+        cursor.execute(sabuem.build_sql_query(wishlist))
+        hitlist=cursor.fetchall()
+        if len(hitlist)!=0:
+            try:
+                sabuem.email_list(userdata[0],hitlist)
+                print ('Mail sent successfully to '+userdata[0])
+            except:
+                print ('Sending mail to '+userdata[0]+' failed')
         else:
-            query+="( "
-            for y in range(len(words)):
-                query+="title LIKE '%"+words[y]+"%'"
-                if y!=len(words)-1:
-                    query+=" AND "
-            query+=" )"
-        if x!=len(wishlist)-1:
-            query+=" OR "
-    query+=" ) AND new=true ORDER BY time"
-
-    #Execute SQL query and save a list of movies to be emailed in variable hitlist
-    cursor.execute(query)
-    hitlist=cursor.fetchall()
-    if len(hitlist)!=0:
-        msgbody=""
-        for hit in hitlist:
-            msgbody+=hit[2]+" : <a href='"+hit[4]+"'>"+hit[3].replace("'", r"\'")+"</a><br>"
-        msg = MIMEText(msgbody.encode('utf-8'),'html', _charset='utf-8')
-        msg['From'] = user[0]
-        msg['To'] = user[0]
-        msg['MIME-Version'] = '1.0'
-        msg['Content-type'] = 'text/html'
-        msg['Subject'] = 'Your Movies!'
-        try:
-            server_ssl = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-            server_ssl.ehlo() 
-            server_ssl.login('nils.leandersson@gmail.com','password')  
-            server_ssl.sendmail(sender, [to], msg.as_string())
-            server_ssl.close()
-            print ('mail sent successfully to '+user[0])
-        except:
-            print ('sending mail failed to '+user[0])
+            print ('Nothing new to send to '+userdata[0])
     else:
-        print ('Nothing new to send to '+user[0])
+        print ('Nothing defined in '+userdata[0]+' wishlist')
 
-#Delete all movie items older than one week from reasent table 
+#Delete all items older than one week from reasent table 
 cursor.execute("DELETE FROM reasent WHERE time<"+str(time.time()-604800))
 
-#Mark all movie items as sent in reasent table
+#Delete unconfirmed accounts older than one hour 
+cursor.execute("DELETE FROM users WHERE confirm!='0' AND regtime<"+str(time.time()-3600))
+
+#Mark all items as sent in reasent table
 cursor.execute("UPDATE reasent SET new=false WHERE 1")
 db.commit()
 
